@@ -1,0 +1,12 @@
+.venv
+.venv311
+__pycache__
+*.pyc
+backend_data/
+node_modules/
+webapp/node_modules/
+webapp/.next/
+webapp/.env.local
+.DS_Store
+base.MOV
+*.MOV
