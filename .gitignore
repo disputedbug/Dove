@@ -6,6 +6,7 @@ backend_data/
 node_modules/
 webapp/node_modules/
 webapp/.next/
+webapp/.open-next/
 webapp/.env.local
 backend/.env
 .DS_Store

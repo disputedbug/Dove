@@ -1,11 +1,8 @@
 import type { Metadata } from "next";
-import { Josefin_Sans } from "next/font/google";
+import "@fontsource/josefin-sans/400.css";
+import "@fontsource/josefin-sans/600.css";
+import "@fontsource/josefin-sans/700.css";
 import "./globals.css";
-
-const fontSans = Josefin_Sans({
-  variable: "--font-sans",
-  subsets: ["latin"],
-});
 
 export const metadata: Metadata = {
   title: "VidX",
@@ -19,7 +16,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`${fontSans.variable} antialiased`}>
+      <body className="antialiased">
         {children}
       </body>
     </html>

@@ -193,12 +193,12 @@ export default function Home() {
     const total = Number(contentLength);
     const reader = res.body.getReader();
     let received = 0;
-    const chunks: Uint8Array[] = [];
+    const chunks: BlobPart[] = [];
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
       if (value) {
-        chunks.push(value);
+        chunks.push(new Uint8Array(value));
         received += value.length;
         onProgress(Math.min(100, Math.round((received / total) * 100)));
       }
