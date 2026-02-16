@@ -7,6 +7,7 @@ node_modules/
 webapp/node_modules/
 webapp/.next/
 webapp/.env.local
+backend/.env
 .DS_Store
 base.MOV
 *.MOV

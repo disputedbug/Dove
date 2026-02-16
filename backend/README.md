@@ -68,11 +68,18 @@ Base URL: `http://<host>:8000`
 Form fields:
 - `base_video` (file, required)  
 - `recipients` (file, required)  
+- `voice_sample` (file, optional) Voice sample audio for external TTS providers. Required when `tts_provider=elevenlabs`.  
+- `insert_mode` (string, optional, `silver|gold|diamond`, default `silver`)  
+  - `silver`: inserts name at start by padding video with a frozen first frame (keeps sync)
+  - `gold`: replaces the first spoken "generic name" audio segment (video continues; slight lip-sync mismatch tolerated)
 - `name_position` (string, optional, `start|end`, default `start`)  
 - `text` (string, optional, default `{name}`)  
 - `lang` (string, optional, default `hi`)  
-- `tts_provider` (string, optional, `gtts|command|none`, default `gtts`)  
+- `tts_provider` (string, optional, `gtts|elevenlabs|command|none`, default `gtts`)  
 - `tts_cmd` (string, optional; used only with `command`)  
+- `elevenlabs_api_key` (string, optional; used only with `elevenlabs`)  
+- `elevenlabs_voice_id` (string, optional; used only with `elevenlabs`) Typically not needed: VidX can clone from `voice_sample`.  
+- `elevenlabs_model_id` (string, optional; used only with `elevenlabs`)  
 - `silence_db` (float, optional, default `-30.0`)  
 - `silence_dur` (float, optional, default `0.3`)  
 - `convert_mov` (bool, optional, default `false`) Converts input .MOV to MP4 before processing  
@@ -82,6 +89,8 @@ Example (curl):
 curl -X POST http://localhost:8000/jobs \
   -F "base_video=@/path/to/base.mp4" \
   -F "recipients=@/path/to/recipients.xlsx" \
+  -F "voice_sample=@/path/to/voice.wav" \
+  -F "insert_mode=silver" \
   -F "name_position=start" \
   -F "text={name}" \
   -F "lang=hi" \
@@ -128,6 +137,10 @@ Response (done):
 `GET /jobs/{job_id}/download`
 
 Returns a ZIP containing all personalized videos.
+
+## Caching behavior
+- Voice cloning: cached by voice sample hash in `backend_data/elevenlabs_voice_cache.json`
+- Name audio clips: cached globally in `backend_data/name_audio_cache/`
 
 Example:
 ```bash

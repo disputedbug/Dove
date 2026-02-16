@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import shutil
 import subprocess
@@ -8,6 +9,8 @@ import uuid
 from pathlib import Path
 from typing import Optional
 
+import requests
+from dotenv import load_dotenv
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -17,9 +20,13 @@ from .storage import get_storage_backend
 
 BASE_DIR = Path(__file__).resolve().parent
 REPO_ROOT = BASE_DIR.parent
+
+# Load env vars from backend/.env if present
+load_dotenv(dotenv_path=BASE_DIR / ".env")
 DATA_DIR = Path(os.environ.get("VIDX_DATA_DIR", str(REPO_ROOT / "backend_data")))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DATA_DIR / "jobs.sqlite3"
+GLOBAL_NAME_AUDIO_DIR = DATA_DIR / "name_audio_cache"
 
 storage = get_storage_backend()
 job_store = JobStore(DB_PATH)
@@ -36,6 +43,51 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+VOICE_CACHE_PATH = DATA_DIR / "elevenlabs_voice_cache.json"
+
+
+def _load_voice_cache() -> dict:
+    if not VOICE_CACHE_PATH.exists():
+        return {}
+    try:
+        return json.loads(VOICE_CACHE_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _save_voice_cache(cache: dict) -> None:
+    VOICE_CACHE_PATH.write_text(json.dumps(cache, indent=2), encoding="utf-8")
+
+
+def _file_hash(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def elevenlabs_clone_voice(*, api_key: str | None, voice_name: str, voice_sample_path: Path) -> str:
+    api_key = api_key or os.environ.get("ELEVENLABS_API_KEY")
+    if not api_key:
+        raise RuntimeError("ElevenLabs API key missing. Set ELEVENLABS_API_KEY or pass elevenlabs_api_key.")
+    if not voice_sample_path.exists():
+        raise RuntimeError(f"Voice sample not found: {voice_sample_path}")
+
+    url = "https://api.elevenlabs.io/v1/voices/add"
+    headers = {"xi-api-key": api_key, "accept": "application/json"}
+    with open(voice_sample_path, "rb") as f:
+        files = [("files", (voice_sample_path.name, f, "application/octet-stream"))]
+        data = {"name": voice_name}
+        resp = requests.post(url, headers=headers, data=data, files=files, timeout=90)
+    if resp.status_code >= 300:
+        raise RuntimeError(f"ElevenLabs voice clone failed ({resp.status_code}): {resp.text[:600]}")
+    payload = resp.json()
+    voice_id = payload.get("voice_id") or payload.get("voice", {}).get("voice_id")
+    if not voice_id:
+        raise RuntimeError(f"ElevenLabs voice clone response missing voice_id: {payload}")
+    return str(voice_id)
+
 
 def run_pipeline(job_id: str) -> None:
     job = job_store.get(job_id)
@@ -48,8 +100,13 @@ def run_pipeline(job_id: str) -> None:
 
     job_store.update_status(job_id, "running")
     try:
+        insert_mode = options.get("insert_mode", "silver")
+        if insert_mode not in ("silver", "gold"):
+            raise RuntimeError(f"insert_mode={insert_mode} is not implemented yet.")
+
         base_video = Path(options.get("base_path", input_dir / "base_video"))
         recipients = Path(options.get("recipients_path", input_dir / "recipients"))
+        voice_sample = options.get("voice_sample_path")
         out_dir = output_dir / "videos"
         out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -67,6 +124,40 @@ def run_pipeline(job_id: str) -> None:
                 subprocess.run(convert_cmd, check=True)
                 base_video = converted
 
+        name_audio_dir = output_dir / "name_audio"
+        names_master_out = output_dir / "names_master.wav"
+
+        tts_provider = options.get("tts_provider", "gtts")
+        eleven_api_key = options.get("elevenlabs_api_key", "") or None
+        eleven_voice_id = options.get("elevenlabs_voice_id", "") or None
+        eleven_model_id = options.get("elevenlabs_model_id", "") or None
+
+        if tts_provider == "elevenlabs":
+            if not voice_sample:
+                raise RuntimeError("ElevenLabs selected but no voice_sample was provided.")
+            voice_sample_path = Path(voice_sample)
+            sample_hash = _file_hash(voice_sample_path)
+            cache = _load_voice_cache()
+            cached = cache.get(sample_hash)
+            if cached and cached.get("voice_id"):
+                eleven_voice_id = cached["voice_id"]
+                if not eleven_model_id:
+                    eleven_model_id = cached.get("model_id") or None
+            else:
+                cloned_voice_id = elevenlabs_clone_voice(
+                    api_key=eleven_api_key,
+                    voice_name=f"vidx-{job_id}",
+                    voice_sample_path=voice_sample_path,
+                )
+                eleven_voice_id = cloned_voice_id
+                cache[sample_hash] = {
+                    "voice_id": cloned_voice_id,
+                    "model_id": eleven_model_id or "eleven_multilingual_v2",
+                    "voice_sample_path": str(voice_sample_path),
+                }
+                _save_voice_cache(cache)
+            (output_dir / "elevenlabs_voice_id.txt").write_text(str(eleven_voice_id), encoding="utf-8")
+
         cmd = [
             "python3",
             str(REPO_ROOT / "personalized_video.py"),
@@ -76,6 +167,8 @@ def run_pipeline(job_id: str) -> None:
             str(recipients),
             "--outdir",
             str(out_dir),
+            "--insert-mode",
+            insert_mode,
             "--name-position",
             options.get("name_position", "start"),
             "--text",
@@ -83,14 +176,27 @@ def run_pipeline(job_id: str) -> None:
             "--lang",
             options.get("lang", "hi"),
             "--tts-provider",
-            options.get("tts_provider", "gtts"),
+            tts_provider,
             "--tts-cmd",
             options.get("tts_cmd", ""),
+            "--elevenlabs-api-key",
+            eleven_api_key or "",
+            "--elevenlabs-voice-id",
+            eleven_voice_id or "",
+            "--elevenlabs-model-id",
+            eleven_model_id or "",
             "--silence-db",
             str(options.get("silence_db", -30.0)),
             "--silence-dur",
             str(options.get("silence_dur", 0.3)),
+            "--build-name-cache",
+            "--name-cache-dir",
+            str(GLOBAL_NAME_AUDIO_DIR),
+            "--names-master-out",
+            str(names_master_out),
         ]
+        if voice_sample:
+            cmd += ["--voice-sample", str(voice_sample)]
 
         subprocess.run(cmd, check=True)
 
@@ -109,11 +215,16 @@ def create_job(
     background_tasks: BackgroundTasks,
     base_video: UploadFile = File(...),
     recipients: UploadFile = File(...),
+    voice_sample: UploadFile | None = File(None),
+    insert_mode: str = Form("silver"),
     name_position: str = Form("start"),
     text: str = Form("{name}"),
     lang: str = Form("hi"),
     tts_provider: str = Form("gtts"),
     tts_cmd: str = Form(""),
+    elevenlabs_api_key: str = Form(""),
+    elevenlabs_voice_id: str = Form(""),
+    elevenlabs_model_id: str = Form(""),
     silence_db: float = Form(-30.0),
     silence_dur: float = Form(0.3),
     convert_mov: bool = Form(False),
@@ -133,19 +244,32 @@ def create_job(
 
     storage.save_upload(base_video.file, base_path)
     storage.save_upload(recipients.file, rec_path)
+    voice_path = None
+    if voice_sample is not None:
+        voice_suffix = Path(voice_sample.filename or "").suffix or ".wav"
+        voice_path = input_dir / f"voice_sample{voice_suffix}"
+        storage.save_upload(voice_sample.file, voice_path)
+    if tts_provider == "elevenlabs" and voice_path is None:
+        raise HTTPException(status_code=400, detail="voice_sample is required when tts_provider=elevenlabs")
 
     options = {
+        "insert_mode": insert_mode,
         "name_position": name_position,
         "text": text,
         "lang": lang,
         "tts_provider": tts_provider,
         "tts_cmd": tts_cmd,
+        "elevenlabs_api_key": elevenlabs_api_key,
+        "elevenlabs_voice_id": elevenlabs_voice_id,
+        "elevenlabs_model_id": elevenlabs_model_id,
         "silence_db": silence_db,
         "silence_dur": silence_dur,
         "convert_mov": convert_mov,
     }
     options["base_path"] = str(base_path)
     options["recipients_path"] = str(rec_path)
+    if voice_path is not None:
+        options["voice_sample_path"] = str(voice_path)
     job_store.create(job_id, input_dir, output_dir, options)
 
     background_tasks.add_task(run_pipeline, job_id)
