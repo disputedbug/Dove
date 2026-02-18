@@ -6,6 +6,7 @@ import os
 import shutil
 import subprocess
 import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -67,6 +68,12 @@ def _file_hash(path: Path) -> str:
     return h.hexdigest()
 
 
+def _new_job_id() -> str:
+    # Local-time, human-readable format with am/pm.
+    now = datetime.now()
+    return now.strftime("%Y-%m-%d_%I-%M-%S-%p").lower()
+
+
 def elevenlabs_clone_voice(*, api_key: str | None, voice_name: str, voice_sample_path: Path) -> str:
     api_key = api_key or os.environ.get("ELEVENLABS_API_KEY")
     if not api_key:
@@ -100,7 +107,8 @@ def run_pipeline(job_id: str) -> None:
 
     job_store.update_status(job_id, "running")
     try:
-        insert_mode = options.get("insert_mode", "silver")
+        requested_mode = options.get("insert_mode", "silver")
+        insert_mode = "gold" if requested_mode in ("diamond", "platinum") else requested_mode
         if insert_mode not in ("silver", "gold"):
             raise RuntimeError(f"insert_mode={insert_mode} is not implemented yet.")
 
@@ -131,6 +139,21 @@ def run_pipeline(job_id: str) -> None:
         eleven_api_key = options.get("elevenlabs_api_key", "") or None
         eleven_voice_id = options.get("elevenlabs_voice_id", "") or None
         eleven_model_id = options.get("elevenlabs_model_id", "") or None
+        eleven_speed = float(options.get("elevenlabs_speed", 1.0))
+        lip_sync_provider = options.get("lip_sync_provider", "none")
+        wav2lip_repo = options.get("wav2lip_repo", "")
+        wav2lip_checkpoint = options.get("wav2lip_checkpoint", "")
+        wav2lip_pads = options.get("wav2lip_pads", "0 10 0 0")
+        wav2lip_python = options.get("wav2lip_python", "python3")
+        batch_name_tts = bool(options.get("batch_name_tts", True))
+        batch_split_silence_db = float(options.get("batch_split_silence_db", -40.0))
+        batch_split_silence_dur = float(options.get("batch_split_silence_dur", 0.18))
+        batch_gap_hint = str(options.get("batch_gap_hint", "ठहराव"))
+        diamond_natural_name = bool(options.get("diamond_natural_name", False))
+        diamond_gap_seconds = float(options.get("diamond_gap_seconds", 0.12))
+        platinum_placeholders = str(options.get("platinum_placeholders", "NAME1,NAME2"))
+        if requested_mode not in ("diamond", "platinum"):
+            lip_sync_provider = "none"
 
         if tts_provider == "elevenlabs":
             if not voice_sample:
@@ -169,6 +192,16 @@ def run_pipeline(job_id: str) -> None:
             str(out_dir),
             "--insert-mode",
             insert_mode,
+            "--lip-sync-provider",
+            lip_sync_provider,
+            "--wav2lip-repo",
+            wav2lip_repo,
+            "--wav2lip-checkpoint",
+            wav2lip_checkpoint,
+            "--wav2lip-pads",
+            wav2lip_pads,
+            "--wav2lip-python",
+            wav2lip_python,
             "--name-position",
             options.get("name_position", "start"),
             "--text",
@@ -185,6 +218,8 @@ def run_pipeline(job_id: str) -> None:
             eleven_voice_id or "",
             "--elevenlabs-model-id",
             eleven_model_id or "",
+            "--elevenlabs-speed",
+            f"{eleven_speed:.3f}",
             "--silence-db",
             str(options.get("silence_db", -30.0)),
             "--silence-dur",
@@ -194,11 +229,29 @@ def run_pipeline(job_id: str) -> None:
             str(GLOBAL_NAME_AUDIO_DIR),
             "--names-master-out",
             str(names_master_out),
+            "--batch-split-silence-db",
+            str(batch_split_silence_db),
+            "--batch-split-silence-dur",
+            str(batch_split_silence_dur),
+            "--batch-gap-hint",
+            batch_gap_hint,
+            "--diamond-gap-seconds",
+            str(diamond_gap_seconds),
+            "--platinum-placeholders",
+            platinum_placeholders,
         ]
+        cmd.append("--batch-name-tts" if batch_name_tts else "--no-batch-name-tts")
+        cmd.append("--diamond-natural-name" if diamond_natural_name else "--no-diamond-natural-name")
+        cmd.append("--platinum-mode" if requested_mode == "platinum" else "--no-platinum-mode")
         if voice_sample:
             cmd += ["--voice-sample", str(voice_sample)]
 
-        subprocess.run(cmd, check=True)
+        proc = subprocess.run(cmd, check=False, capture_output=True, text=True)
+        if proc.returncode != 0:
+            stderr_tail = (proc.stderr or "").strip()[-4000:]
+            stdout_tail = (proc.stdout or "").strip()[-1500:]
+            details = stderr_tail or stdout_tail or "No subprocess output."
+            raise RuntimeError(f"personalized_video.py failed:\n{details}")
 
         zip_path = output_dir / "videos.zip"
         if zip_path.exists():
@@ -225,11 +278,24 @@ def create_job(
     elevenlabs_api_key: str = Form(""),
     elevenlabs_voice_id: str = Form(""),
     elevenlabs_model_id: str = Form(""),
+    elevenlabs_speed: float = Form(1.0),
+    lip_sync_provider: str = Form("none"),
+    wav2lip_repo: str = Form(""),
+    wav2lip_checkpoint: str = Form(""),
+    wav2lip_pads: str = Form("0 10 0 0"),
+    wav2lip_python: str = Form("python3"),
+    batch_name_tts: bool = Form(True),
+    batch_split_silence_db: float = Form(-40.0),
+    batch_split_silence_dur: float = Form(0.18),
+    batch_gap_hint: str = Form("ठहराव"),
+    diamond_natural_name: bool = Form(True),
+    diamond_gap_seconds: float = Form(0.12),
+    platinum_placeholders: str = Form("NAME1,NAME2"),
     silence_db: float = Form(-30.0),
     silence_dur: float = Form(0.3),
     convert_mov: bool = Form(False),
 ):
-    job_id = uuid.uuid4().hex
+    job_id = _new_job_id()
     job_dir = DATA_DIR / job_id
     input_dir = job_dir / "input"
     output_dir = job_dir / "output"
@@ -251,6 +317,23 @@ def create_job(
         storage.save_upload(voice_sample.file, voice_path)
     if tts_provider == "elevenlabs" and voice_path is None:
         raise HTTPException(status_code=400, detail="voice_sample is required when tts_provider=elevenlabs")
+    if insert_mode in ("diamond", "platinum") and lip_sync_provider == "wav2lip":
+        repo_raw = (wav2lip_repo or os.environ.get("WAV2LIP_REPO", "")).strip()
+        ckpt_raw = (wav2lip_checkpoint or os.environ.get("WAV2LIP_CHECKPOINT", "")).strip()
+        if not repo_raw:
+            raise HTTPException(status_code=400, detail="wav2lip_repo is required when Diamond + Wav2Lip is selected")
+        if not ckpt_raw:
+            raise HTTPException(status_code=400, detail="wav2lip_checkpoint is required when Diamond + Wav2Lip is selected")
+        repo_path = Path(repo_raw).expanduser()
+        ckpt_path = Path(ckpt_raw).expanduser()
+        if not repo_path.exists():
+            raise HTTPException(status_code=400, detail=f"wav2lip_repo not found: {repo_path}")
+        if not (repo_path / "inference.py").exists():
+            raise HTTPException(status_code=400, detail=f"Wav2Lip inference.py not found in repo: {repo_path}")
+        if not ckpt_path.exists():
+            raise HTTPException(status_code=400, detail=f"wav2lip_checkpoint not found: {ckpt_path}")
+    if insert_mode == "platinum" and not platinum_placeholders.strip():
+        raise HTTPException(status_code=400, detail="platinum_placeholders is required for platinum tier")
 
     options = {
         "insert_mode": insert_mode,
@@ -262,6 +345,19 @@ def create_job(
         "elevenlabs_api_key": elevenlabs_api_key,
         "elevenlabs_voice_id": elevenlabs_voice_id,
         "elevenlabs_model_id": elevenlabs_model_id,
+        "elevenlabs_speed": elevenlabs_speed,
+        "lip_sync_provider": lip_sync_provider,
+        "wav2lip_repo": wav2lip_repo,
+        "wav2lip_checkpoint": wav2lip_checkpoint,
+        "wav2lip_pads": wav2lip_pads,
+        "wav2lip_python": wav2lip_python,
+        "batch_name_tts": batch_name_tts,
+        "batch_split_silence_db": batch_split_silence_db,
+        "batch_split_silence_dur": batch_split_silence_dur,
+        "batch_gap_hint": batch_gap_hint,
+        "diamond_natural_name": diamond_natural_name,
+        "diamond_gap_seconds": diamond_gap_seconds,
+        "platinum_placeholders": platinum_placeholders,
         "silence_db": silence_db,
         "silence_dur": silence_dur,
         "convert_mov": convert_mov,
@@ -275,6 +371,26 @@ def create_job(
     background_tasks.add_task(run_pipeline, job_id)
 
     return {"job_id": job_id, "status": "queued"}
+
+
+@app.post("/cache/name-audio/clear")
+def clear_name_audio_cache():
+    removed_files = 0
+    removed_dirs = 0
+    if GLOBAL_NAME_AUDIO_DIR.exists():
+        for p in GLOBAL_NAME_AUDIO_DIR.rglob("*"):
+            if p.is_file():
+                removed_files += 1
+            elif p.is_dir():
+                removed_dirs += 1
+        shutil.rmtree(GLOBAL_NAME_AUDIO_DIR)
+    GLOBAL_NAME_AUDIO_DIR.mkdir(parents=True, exist_ok=True)
+    return {
+        "status": "ok",
+        "cleared_dir": str(GLOBAL_NAME_AUDIO_DIR),
+        "removed_files": removed_files,
+        "removed_dirs": removed_dirs,
+    }
 
 
 @app.get("/jobs/{job_id}")

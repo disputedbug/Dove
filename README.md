@@ -89,7 +89,9 @@ python3 personalized_video.py \
 - You can later wrap this script into a web app without changing the core pipeline.
 - The script detects the end of speech using `silencedetect` and inserts the name right after the speaker stops.
    You can tune this with `--silence-db` and `--silence-dur`.
- - When the name is inserted at the start, the video is padded with a frozen first frame to keep audio/video in sync.
+- When the name is inserted at the start, the video is padded with a frozen first frame to keep audio/video in sync.
+- Name loudness is auto-matched to the base audio (can be tuned with `--name-loudness-max-gain-db`).
+- Name cache build can synthesize all names in one TTS request and split by silence (`--batch-name-tts`).
 
 ## Backend API (pluggable storage)
 If you want a generic API backend for web/desktop/mobile clients, see:

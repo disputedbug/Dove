@@ -69,9 +69,11 @@ Form fields:
 - `base_video` (file, required)  
 - `recipients` (file, required)  
 - `voice_sample` (file, optional) Voice sample audio for external TTS providers. Required when `tts_provider=elevenlabs`.  
-- `insert_mode` (string, optional, `silver|gold|diamond`, default `silver`)  
-  - `silver`: inserts name at start by padding video with a frozen first frame (keeps sync)
-  - `gold`: replaces the first spoken "generic name" audio segment (video continues; slight lip-sync mismatch tolerated)
+- `insert_mode` (string, optional, `silver|gold|diamond|platinum`, default `silver`)  
+  - `silver` (Essential): audio-only output (`.mp3`) per recipient; extracts base audio and inserts name
+  - `gold` (Advanced): replaces the first spoken "generic name" audio segment (video continues; slight lip-sync mismatch tolerated)
+  - `diamond` (Professional): gold flow + optional lip-sync post-processing
+  - `platinum` (Enterprise): replaces multiple spoken placeholder markers and applies lip-sync
 - `name_position` (string, optional, `start|end`, default `start`)  
 - `text` (string, optional, default `{name}`)  
 - `lang` (string, optional, default `hi`)  
@@ -80,6 +82,19 @@ Form fields:
 - `elevenlabs_api_key` (string, optional; used only with `elevenlabs`)  
 - `elevenlabs_voice_id` (string, optional; used only with `elevenlabs`) Typically not needed: VidX can clone from `voice_sample`.  
 - `elevenlabs_model_id` (string, optional; used only with `elevenlabs`)  
+- `elevenlabs_speed` (float, optional; used only with `elevenlabs`, default `1.0`, range `0.7..1.2`)  
+- `lip_sync_provider` (string, optional, `none|wav2lip|sync_api`, default `none`)  
+- `wav2lip_repo` (string, optional; path to Wav2Lip repo; fallback `WAV2LIP_REPO`)  
+- `wav2lip_checkpoint` (string, optional; path to Wav2Lip checkpoint; fallback `WAV2LIP_CHECKPOINT`)  
+- `wav2lip_pads` (string, optional, default `"0 10 0 0"`)  
+- `wav2lip_python` (string, optional, default `python3`)  
+- `batch_name_tts` (bool, optional, default `true`) Generate all names in one TTS request and split by silence  
+- `batch_split_silence_db` (float, optional, default `-40.0`)  
+- `batch_split_silence_dur` (float, optional, default `0.18`)  
+- `batch_gap_hint` (string, optional, default `"ठहराव"`) Hint inserted between names in batch prompt to encourage short pauses  
+- `diamond_natural_name` (bool, optional, default `true`) Keep Diamond name at natural speed (no forced fit)  
+- `diamond_gap_seconds` (float, optional, default `0.12`) Silence gap after generated name in Diamond  
+- `platinum_placeholders` (string, optional, default `"NAME1,NAME2"`) Comma-separated placeholder markers in speaking order  
 - `silence_db` (float, optional, default `-30.0`)  
 - `silence_dur` (float, optional, default `0.3`)  
 - `convert_mov` (bool, optional, default `false`) Converts input .MOV to MP4 before processing  
@@ -165,6 +180,11 @@ curl -X POST http://localhost:8000/convert \
   -F "audio_bitrate=160k" \
   -o converted.mp4
 ```
+
+### 5. Clear Name TTS Cache
+`POST /cache/name-audio/clear`
+
+Clears cached per-name TTS files (`backend_data/name_audio_cache/`) so all recipient names are synthesized again on next job.
 
 ## Notes
 - The backend calls `personalized_video.py` as a subprocess. Keep it in the repo root.
