@@ -143,8 +143,13 @@ export default function Home() {
       },
       legalTitle: { en: "Legal", hi: "कानूनी" },
       aboutLegal: {
-        en: "“Dove VidX” is the exclusive property of Trine Engineering Private Limited (TEPL). All rights, title, and interest therein are vested in TEPL. Use of the software is permitted solely pursuant to a valid license granted by TEPL. The software has been designed and developed by the TEPL Development Team.",
-        hi: "“Dove VidX” Trine Engineering Private Limited (TEPL) की विशेष संपत्ति है। इसके सभी अधिकार, शीर्षक और हित TEPL में निहित हैं। इस सॉफ़्टवेयर का उपयोग केवल TEPL द्वारा प्रदान किए गए वैध लाइसेंस के अनुसार ही अनुमत है। इस सॉफ़्टवेयर को TEPL Development Team द्वारा डिज़ाइन और विकसित किया गया है।",
+        en: "“Dove VidX” is the exclusive property of Trine Engineering Private Limited (TEPL). All rights, title, and interest therein are vested in TEPL. Use of the software is permitted solely pursuant to a valid license granted by TEPL.",
+        hi: "“Dove VidX” Trine Engineering Private Limited (TEPL) की विशेष संपत्ति है। इसके सभी अधिकार, शीर्षक और हित TEPL में निहित हैं। इस सॉफ़्टवेयर का उपयोग केवल TEPL द्वारा प्रदान किए गए वैध लाइसेंस के अनुसार ही अनुमत है।",
+      },
+      developmentTitle: { en: "Development", hi: "विकास" },
+      aboutDevelopment: {
+        en: "The software has been designed and developed by the TEPL Development Team.",
+        hi: "इस सॉफ़्टवेयर को TEPL Development Team द्वारा डिज़ाइन और विकसित किया गया है।",
       },
     };
     return dict[key]?.[langUI] ?? key;
@@ -967,13 +972,13 @@ export default function Home() {
 
       {aboutOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 px-4">
-          <div className="w-full max-w-lg rounded-2xl border border-black/10 bg-white p-5 shadow-[0_24px_70px_-42px_rgba(0,0,0,0.5)]">
-            <div className="flex items-center justify-between gap-3">
+          <div className="w-full max-w-lg rounded-2xl border border-black/10 bg-white p-5 text-center shadow-[0_24px_70px_-42px_rgba(0,0,0,0.5)]">
+            <div className="relative flex items-center justify-center">
               <h3 className="text-lg font-semibold">{t("aboutTitle")}</h3>
               <button
                 type="button"
                 onClick={() => setAboutOpen(false)}
-                className="rounded-lg border border-black/20 px-2 py-1 text-xs font-semibold text-black/70 transition hover:bg-black/5"
+                className="absolute right-0 rounded-lg border border-black/20 px-2 py-1 text-xs font-semibold text-black/70 transition hover:bg-black/5"
               >
                 Close
               </button>
@@ -981,6 +986,8 @@ export default function Home() {
             <p className="mt-3 text-sm text-black/80">{t("aboutIntro")}</p>
             <h4 className="mt-4 text-lg font-semibold">{t("legalTitle")}</h4>
             <p className="mt-2 text-sm text-black/80">{t("aboutLegal")}</p>
+            <h4 className="mt-4 text-lg font-semibold">{t("developmentTitle")}</h4>
+            <p className="mt-2 text-sm text-black/80">{t("aboutDevelopment")}</p>
           </div>
         </div>
       )}
