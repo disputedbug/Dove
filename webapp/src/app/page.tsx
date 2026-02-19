@@ -986,8 +986,8 @@ export default function Home() {
       )}
 
       <footer className="relative z-10 mx-auto mt-10 flex w-full max-w-6xl flex-wrap items-center justify-between gap-3 border-t border-white/30 pt-6 text-sm font-semibold text-white">
-        <p className="min-w-[260px] flex-1">
-          Ownership of &quot;VidX&quot; vests with Trine Engineering Private Limited
+        <p className="min-w-[260px] flex-1 text-xs">
+          Ownership of &quot;Dove VidX&quot; vests with Trine Engineering Private Limited
           (TEPL). Use is permitted strictly under license.
         </p>
         <p className="min-w-[240px] text-right text-xs font-medium text-white/80">
