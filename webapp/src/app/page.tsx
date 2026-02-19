@@ -637,9 +637,9 @@ export default function Home() {
                       }
                       className="mt-2 w-full rounded-xl border border-black/10 bg-white px-3 py-2 text-sm"
                     >
-                      <option value="silver">Essential (audio only)</option>
+                      <option value="silver">Essential (audio with single-name replace)</option>
                       <option value="gold">Advanced (Video with single-name replace)</option>
-                      <option value="diamond">Professional (Video with lip-sync)</option>
+                      <option value="diamond">Professional (Video with single-name replace and lip-sync)</option>
                       <option value="platinum">Enterprise (Video with multi-name replace and lip-sync)</option>
                     </select>
                   </div>
